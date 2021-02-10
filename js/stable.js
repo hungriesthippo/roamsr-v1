@@ -1,8 +1,12 @@
+/* eslint-disable no-console */
+/* eslint-disable no-useless-escape */
+/* eslint-disable no-underscore-dangle */
+/* global roamsr */
 if (!window.roamsr) window.roamsr = {};
 
 // --- Schedulers / algorithms ---
-roamsr.ankiScheduler = (userConfig) => {  
-  var config = {
+roamsr.ankiScheduler = (userConfig) => {
+  const defaultConfig = {
     defaultFactor: 2.5,
     firstFewIntervals: [1, 6],
     factorModifier: 0.15,
@@ -11,244 +15,341 @@ roamsr.ankiScheduler = (userConfig) => {
     minFactor: 1.3,
     jitterPercentage: 0.05,
     maxInterval: 50 * 365,
-    responseTexts: ["Again.", "Hard.", "Good.", "Easy."]
-  }
-  config = Object.assign(config, userConfig);
+    responseTexts: ["Again.", "Hard.", "Good.", "Easy."],
+  };
+  const config = Object.assign(defaultConfig, userConfig);
 
-  var algorithm = (history) => {
-    var nextInterval;
-    var lastFail = history ? (history.map(review => review.signal).lastIndexOf("1") + 1) : 0;
-    history = history ? (lastFail == -1 ? history : history.slice(lastFail)) : [];
-    // Check if in learning phase
-    if (history.length == 0 || history.length < config.firstFewIntervals.length) {
-      return [{
-        responseText: config.responseTexts[0],
-        signal: 1,
-        interval: 0
-      },
-      {
-        responseText: config.responseTexts[2],
-        signal: 3,
-        interval: config.firstFewIntervals[history ? Math.max(history.length - 1, 0) : 0]
-      }];
-    } else {
-      var calculateNewParams = (prevFactor, prevInterval, delay, signal) => {
-        var [newFactor, newInterval] = (() => {
-          switch (signal) {
-            case "1":
-              return [prevFactor - 0.2, 0];
-            case "2":
-              return [prevFactor - config.factorModifier, prevInterval * config.hardFactor];
-            case "3":
-              return [prevFactor, (prevInterval + delay / 2) * prevFactor];
-            case "4":
-              return [prevFactor + config.factorModifier, (prevInterval + delay) * prevFactor * config.easeBonus];
-            default:
-              return [prevFactor, prevInterval * prevFactor];
-          }
-        })();
-        return [newFactor, Math.min(newInterval, config.maxInterval)];
-      }
-      var getDelay = (hist, prevInterval) => {
-        if (hist && hist.length > 1)
-          return Math.max((new Date(hist[hist.length - 1].date) - new Date(hist[hist.length - 2].date)) / (1000 * 60 * 60 * 24) - prevInterval, 0);
-        else return 0;
-      }
-      var recurAnki = (hist) => {
-        if (!hist || hist.length <= config.firstFewIntervals.length) {
-          return [config.defaultFactor, config.firstFewIntervals[config.firstFewIntervals.length - 1]];
-        } else {
-          var [prevFactor, prevInterval] = recurAnki(hist.slice(0, -1));
-          return calculateNewParams(prevFactor, prevInterval, getDelay(hist, prevInterval), hist[hist.length - 1].signal);
-        }
-      }
-
-      var [finalFactor, finalInterval] = recurAnki(history.slice(0, -1));
-
-      var addJitter = (interval) => {
-        var jitter = interval * config.jitterPercentage;
-        return interval + (-jitter + Math.random() * jitter)
-      }
-
-      var getResponse = (signal) => {
-        return {
-          responseText: config.responseTexts[parseInt(signal) - 1],
-          signal: signal,
-          interval: Math.floor(addJitter(calculateNewParams(finalFactor, finalInterval, getDelay(history, finalInterval), signal)[1]))
-        }
-      }
-      return [getResponse("1"), getResponse("2"), getResponse("3"), getResponse("4")]
+  const algorithm = (history) => {
+    let historySinceFail = [];
+    if (history) {
+      const lastFail =
+        history.map((review) => review.signal).lastIndexOf("1") + 1;
+      historySinceFail = lastFail === -1 ? history : history.slice(lastFail);
     }
-  }
+    // Check if in learning phase
+    if (
+      historySinceFail.length === 0 ||
+      historySinceFail.length < config.firstFewIntervals.length
+    ) {
+      return [
+        {
+          responseText: config.responseTexts[0],
+          signal: 1,
+          interval: 0,
+        },
+        {
+          responseText: config.responseTexts[2],
+          signal: 3,
+          interval:
+            config.firstFewIntervals[
+              history ? Math.max(history.length - 1, 0) : 0
+            ],
+        },
+      ];
+    }
+    const calculateNewParams = (prevFactor, prevInterval, delay, signal) => {
+      const [newFactor, newInterval] = (() => {
+        switch (signal) {
+          case "1":
+            return [prevFactor - 0.2, 0];
+          case "2":
+            return [
+              prevFactor - config.factorModifier,
+              prevInterval * config.hardFactor,
+            ];
+          case "3":
+            return [prevFactor, (prevInterval + delay / 2) * prevFactor];
+          case "4":
+            return [
+              prevFactor + config.factorModifier,
+              (prevInterval + delay) * prevFactor * config.easeBonus,
+            ];
+          default:
+            return [prevFactor, prevInterval * prevFactor];
+        }
+      })();
+      return [newFactor, Math.min(newInterval, config.maxInterval)];
+    };
+    const getDelay = (hist, prevInterval) => {
+      if (hist && hist.length > 1) {
+        const daysBetweenReview =
+          (new Date(hist[hist.length - 1].date) -
+            new Date(hist[hist.length - 2].date)) /
+          (1000 * 60 * 60 * 24);
+        return Math.max(daysBetweenReview - prevInterval, 0);
+      }
+      return 0;
+    };
+    const recurAnki = (hist) => {
+      if (!hist || hist.length <= config.firstFewIntervals.length) {
+        return [
+          config.defaultFactor,
+          config.firstFewIntervals[config.firstFewIntervals.length - 1],
+        ];
+      }
+      const [prevFactor, prevInterval] = recurAnki(hist.slice(0, -1));
+      return calculateNewParams(
+        prevFactor,
+        prevInterval,
+        getDelay(hist, prevInterval),
+        hist[hist.length - 1].signal
+      );
+    };
+
+    const [finalFactor, finalInterval] = recurAnki(history.slice(0, -1));
+
+    const addJitter = (interval) => {
+      const jitter = interval * config.jitterPercentage;
+      return interval + (-jitter + Math.random() * jitter);
+    };
+
+    const getResponse = (signal) => {
+      const interval = Math.floor(
+        addJitter(
+          calculateNewParams(
+            finalFactor,
+            finalInterval,
+            getDelay(history, finalInterval),
+            signal[1]
+          )
+        )
+      );
+      return {
+        responseText: config.responseTexts[parseInt(signal, 10) - 1],
+        signal,
+        interval,
+      };
+    };
+    return [
+      getResponse("1"),
+      getResponse("2"),
+      getResponse("3"),
+      getResponse("4"),
+    ];
+  };
   return algorithm;
 };
 
 // --- Helper functions ---
-roamsr.sleep = m => {
-  var t = m ? m : 10;
-  return new Promise(r => setTimeout(r, t))
-};
+roamsr.sleep = (m) => new Promise((r) => setTimeout(r, m || 10));
 
 roamsr.createUid = () => {
   // From roam42 based on https://github.com/ai/nanoid#js version 3.1.2
-  let nanoid = (t = 21) => { let e = "", r = crypto.getRandomValues(new Uint8Array(t)); for (; t--;) { let n = 63 & r[t]; e += n < 36 ? n.toString(36) : n < 62 ? (n - 26).toString(36).toUpperCase() : n < 63 ? "_" : "-" } return e };
+  // eslint-disable-next-line
+  const nanoid = (t = 21) => { let e = "", r = crypto.getRandomValues(new Uint8Array(t)); for (; t--;) { let n = 63 & r[t]; e += n < 36 ? n.toString(36) : n < 62 ? (n - 26).toString(36).toUpperCase() : n < 63 ? "_" : "-" } return e };
   return nanoid(9);
 };
 
 roamsr.removeSelector = (selector) => {
-  document.querySelectorAll(selector).forEach(element => { element.remove() });
+  document.querySelectorAll(selector).forEach((element) => {
+    element.remove();
+  });
 };
 
 roamsr.goToUid = (uid) => {
-  var baseUrl = "/" + new URL(window.location.href).hash.split("/").slice(0, 3).join("/");
-  var url = uid ? baseUrl + "/page/" + uid : baseUrl;
-  location.assign(url);
+  const baseUrl = `/${new URL(window.location.href).hash
+    .split("/")
+    .slice(0, 3)
+    .join("/")}`;
+  const url = uid ? `${baseUrl}/page/${uid}` : baseUrl;
+  window.location.assign(url);
 };
 
-roamsr.getRoamDate = (date) => {
-  if (!date || date == 0) date = new Date();
-
-  var months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-  var suffix = ((d) => {
-    if (d > 3 && d < 21) return 'th';
+roamsr.getRoamDate = (maybeDate) => {
+  const date = maybeDate || new Date();
+  const months = [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+  ];
+  const suffix = ((d) => {
+    if (d > 3 && d < 21) return "th";
     switch (d % 10) {
       case 1:
-        return 'st';
+        return "st";
       case 2:
-        return 'nd';
+        return "nd";
       case 3:
-        return 'rd';
+        return "rd";
       default:
-        return 'th';
+        return "th";
     }
   })(date.getDate());
 
-  var pad = (n) => n.toString().padStart(2, "0");
-
-  var title = months[date.getMonth()] + " " + date.getDate() + suffix + ", " + date.getFullYear();
-  var uid = pad(date.getMonth() + 1) + "-" + pad(date.getDate()) + "-" + date.getFullYear();
-  return [title, uid]
+  const title = `${
+    months[date.getMonth()]
+  } ${date.getDate()}${suffix}, ${date.getFullYear()}`;
+  const pad = (n) => n.toString().padStart(2, "0");
+  const uid = `${pad(date.getMonth() + 1)}-${pad(
+    date.getDate()
+  )}-${date.getFullYear()}`;
+  return [title, uid];
 };
 
 roamsr.getIntervalHumanReadable = (n) => {
-  if (n == 0) return "<10 min"
-  else if (n > 0 && n <= 15) return n + " d"
-  else if (n <= 30) return (n / 7).toFixed(1) + " w"
-  else if (n <= 365) return (n / 30).toFixed(1) + " m"
+  if (n === 0) return "<10 min";
+  if (n > 0 && n <= 15) return `${n} d`;
+  if (n <= 30) return `${(n / 7).toFixed(1)} w`;
+  if (n <= 365) return `${(n / 30).toFixed(1)} m`;
+  return "";
 };
 
 // --- Loading cards and style ---
 roamsr.loadCards = async (limits, dateBasis = new Date()) => {
   // Querying for `#sr` and its history and converting to something sensible
-  var recur = (part) => {
-    var result = [];
-    if (part.refs) result.push(...part.refs)
-    if (part._children && part._children.length > 0) result.push(...recur(part._children[0]))
+  const recur = (part) => {
+    const result = [];
+    if (part.refs) result.push(...part.refs);
+    if (part._children && part._children.length > 0)
+      result.push(...recur(part._children[0]));
     return result;
-  }
-  var mainQuery = `[
+  };
+  const mainQuery = `[
     :find (pull ?card [:block/string :block/uid 
     {:block/refs [:node/title]} 
     {:block/_refs [:block/uid :block/string {:block/_children [:block/uid {:block/refs [:node/title]}]} {:block/refs [:node/title]} {:block/page [:block/uid]}]}
     {:block/_children ...}])
-    :where [?card :block/refs ?srPage] [?srPage :node/title "${roamsr.settings.mainTag}"] (not-join [?card] [?card :block/refs ?flagPage] [?flagPage :node/title "${roamsr.settings.flagTag}"])]`
-  var mainQueryResult = await window.roamAlphaAPI.q(mainQuery);
-  var cards = mainQueryResult.map(result => {
-    return {
-      uid: result[0].uid,
-      string: result[0].string,
-      history: result[0]._refs ? result[0]._refs
-        .filter(ref => ref._children[0].refs ? ref._children[0].refs.map(ref2 => ref2.title).includes("roam/sr/review") : false)
-        .map(review => {
-          return {
+    :where [?card :block/refs ?srPage] [?srPage :node/title "${roamsr.settings.mainTag}"] (not-join [?card] [?card :block/refs ?flagPage] [?flagPage :node/title "${roamsr.settings.flagTag}"])]`;
+  const mainQueryResult = await window.roamAlphaAPI.q(mainQuery);
+  let cards = mainQueryResult.map((result) => ({
+    uid: result[0].uid,
+    string: result[0].string,
+    history: result[0]._refs
+      ? result[0]._refs
+          .filter((ref) =>
+            ref._children[0].refs
+              ? ref._children[0].refs
+                  .map((ref2) => ref2.title)
+                  .includes("roam/sr/review")
+              : false
+          )
+          .map((review) => ({
             date: review.page.uid,
             signal: review.refs[0] ? review.refs[0].title.slice(2) : null,
             uid: review.uid,
-            string: review.string
-          }
+            string: review.string,
+          }))
+          .sort((a, b) => new Date(a.date) - new Date(b.date))
+      : [],
+    isNew: result[0]._refs
+      ? !result[0]._refs.some((review) => {
+          const reviewDate = new Date(review.page.uid);
+          reviewDate.setDate(reviewDate.getDate() + 1);
+          return reviewDate < dateBasis;
         })
-        .sort((a, b) => new Date(a.date) - (new Date(b.date))) : [],
-      isNew: result[0]._refs ? !result[0]._refs.some(review => {
-        var reviewDate = new Date(review.page.uid);
-        reviewDate.setDate(reviewDate.getDate() + 1);
-        return reviewDate < dateBasis;
-      }) : true,
-      decks: recur(result[0]).map(deck => deck.title)
-    };
-  });
+      : true,
+    decks: recur(result[0]).map((deck) => deck.title),
+  }));
 
   // Query for todays review
-  var todayUid = roamsr.getRoamDate()[1];
-  var todayQuery = `[
+  const todayUid = roamsr.getRoamDate()[1];
+  const todayQuery = `[
     :find (pull ?card [:block/uid {:block/refs [:node/title]} {:block/_refs [{:block/page [:block/uid]}]}]) (pull ?review [:block/refs])
-    :where [?reviewParent :block/children ?review] [?reviewParent :block/page ?todayPage] [?todayPage :block/uid "${todayUid}"] [?reviewParent :block/refs ?reviewPage] [?reviewPage :node/title "roam/sr/review"] [?review :block/refs ?card] [?card :block/refs ?srPage] [?srPage :node/title "${roamsr.settings.mainTag}"]]`
-  var todayQueryResult = await window.roamAlphaAPI.q(todayQuery);
-  var todayReviewedCards = todayQueryResult
-    .filter(result => result[1].refs.length == 2)
-    .map(result => {
-      return {
-        uid: result[0].uid,
-        isNew: result[0]._refs ? !result[0]._refs.some(review => {
-          var reviewDate = new Date(review.page.uid);
-          reviewDate.setDate(reviewDate.getDate() + 1);
-          return reviewDate < dateBasis
-        }) : true,
-        decks: recur(result[0]).map(deck => deck.title)
-      }
-    })
+    :where [?reviewParent :block/children ?review] [?reviewParent :block/page ?todayPage] [?todayPage :block/uid "${todayUid}"] [?reviewParent :block/refs ?reviewPage] [?reviewPage :node/title "roam/sr/review"] [?review :block/refs ?card] [?card :block/refs ?srPage] [?srPage :node/title "${roamsr.settings.mainTag}"]]`;
+  const todayQueryResult = await window.roamAlphaAPI.q(todayQuery);
+  let todayReviewedCards = todayQueryResult
+    .filter((result) => result[1].refs.length === 2)
+    .map((result) => ({
+      uid: result[0].uid,
+      isNew: result[0]._refs
+        ? !result[0]._refs.some((review) => {
+            const reviewDate = new Date(review.page.uid);
+            reviewDate.setDate(reviewDate.getDate() + 1);
+            return reviewDate < dateBasis;
+          })
+        : true,
+      decks: recur(result[0]).map((deck) => deck.title),
+    }));
 
   // Filter only cards that are due
-  cards = cards.filter(card => card.history.length > 0 ? card.history.some(review => { return (!review.signal && new Date(review.date) <= dateBasis) }) : true);
+  cards = cards.filter((card) =>
+    card.history.length > 0
+      ? card.history.some(
+          (review) => !review.signal && new Date(review.date) <= dateBasis
+        )
+      : true
+  );
 
   // Detect decks
-  cards = cards.map(card => {
-    card.decks = card.decks.filter(deckTag => roamsr.settings.customDecks.map(customDeck => customDeck.tag).includes(deckTag));
+  cards = cards.map((c) => {
+    const card = { ...c };
+    card.decks = card.decks.filter((deckTag) =>
+      roamsr.settings.customDecks
+        .map((customDeck) => customDeck.tag)
+        .includes(deckTag)
+    );
     return card;
   });
 
-  todayReviewedCards = todayReviewedCards.map(card => {
-    card.decks = card.decks.filter(deckTag => roamsr.settings.customDecks.map(customDeck => customDeck.tag).includes(deckTag));
+  todayReviewedCards = todayReviewedCards.map((c) => {
+    const card = { ...c };
+    card.decks = card.decks.filter((deckTag) =>
+      roamsr.settings.customDecks
+        .map((customDeck) => customDeck.tag)
+        .includes(deckTag)
+    );
     return card;
   });
 
   // Save which algorithm
-  cards = cards.map(card => {
+  cards = cards.map((c) => {
+    const card = { ...c };
     if (card.decks && card.decks.length > 0) {
-      var preferredDeck = roamsr.settings.customDecks.filter(customDeck => customDeck.tag == card.decks[card.decks.length - 1])[0];
-      if(!preferredDeck.algorithm || preferredDeck.algorithm === "anki") card.algorithm = roamsr.ankiScheduler(preferredDeck.config);
+      const preferredDeck = roamsr.settings.customDecks.filter(
+        (customDeck) => customDeck.tag === card.decks[card.decks.length - 1]
+      )[0];
+      if (!preferredDeck.algorithm || preferredDeck.algorithm === "anki")
+        card.algorithm = roamsr.ankiScheduler(preferredDeck.config);
       else card.algorithm = preferredDeck.algorithm(preferredDeck.config);
-    } else {
-      if(!roamsr.settings.defaultDeck.algorithm || roamsr.settings.defaultDeck.algorithm === "anki") card.algorithm = roamsr.ankiScheduler(roamsr.settings.defaultDeck.config);
-      else card.algorithm = roamsr.settings.defaultDeck.algorithm(roamsr.settings.defaultDeck.config);
-    }
+    } else if (
+      !roamsr.settings.defaultDeck.algorithm ||
+      roamsr.settings.defaultDeck.algorithm === "anki"
+    )
+      card.algorithm = roamsr.ankiScheduler(roamsr.settings.defaultDeck.config);
+    else
+      card.algorithm = roamsr.settings.defaultDeck.algorithm(
+        roamsr.settings.defaultDeck.config
+      );
     return card;
   });
 
   // Filter those that are over limit
   roamsr.state.extraCards = [[], []];
   if (roamsr.state.limits) {
-    for (deck of roamsr.settings.customDecks.concat(roamsr.settings.defaultDeck)) {
-      var todayReviews = todayReviewedCards.reduce((a, card) => {
-        if (deck.tag ? card.decks.includes(deck.tag) : card.decks.length == 0) {
-          if (!a[2].includes(card.uid)) {
-            a[2].push(card.uid);
-            if (card.isNew) a[0]++;
-            else a[1]++;
-          }
+    roamsr.settings.customDecks
+      .concat(roamsr.settings.defaultDeck)
+      .forEach((deck) => {
+        const deckCards = [
+          ...new Set(roamsr.fromDeck(todayReviewedCards, deck)),
+        ];
+        const newDeckCards = roamsr.onlyNew(deckCards);
+        const newLimit = deck.newLimit || 0;
+        if (newDeckCards.length > newLimit) {
+          const extraNewCards = newDeckCards.slice(newLimit);
+          extraNewCards.forEach((card) => {
+            cards.splice(cards.indexOf(card), 1);
+          });
+          roamsr.state.extraCards[0].push(extraNewCards);
         }
-        return a;
-      }, [0, 0, []]);
-      cards.reduceRight((a, card, i) => {
-        if (deck.tag ? card.decks.includes(deck.tag) : card.decks.length == 0) {
-          var j = card.isNew ? 0 : 1;
-          var limits = [deck.newCardLimit || 0, deck.reviewLimit || 0];
-          if (a[j]++ >= limits[j] - todayReviews[j]) {
-            roamsr.state.extraCards[j].push(cards.splice(i, 1));
-          }
+        const reviewDeckCards = roamsr.onlyReview(deckCards);
+        const reviewLimit = deck.reviewLimit || 0;
+        if (reviewDeckCards.length > reviewLimit) {
+          const extraReviewCards = reviewDeckCards.slice(reviewLimit);
+          extraReviewCards.forEach((card) => {
+            cards.splice(cards.indexOf(card), 1);
+          });
+          roamsr.state.extraCards[1].push(extraReviewCards);
         }
-        return a;
-      }, [0, 0])
-    }
+      });
   }
 
   // Order (new to front)
@@ -256,24 +357,33 @@ roamsr.loadCards = async (limits, dateBasis = new Date()) => {
   return cards;
 };
 
+roamsr.fromDeck = (cards, deck) =>
+  cards.filter((card) =>
+    deck.tag ? card.decks.includes(deck.tag) : card.decks.length === 0
+  );
+roamsr.onlyNew = (cards) => cards.filter((card) => card.isNew);
+roamsr.onlyReview = (cards) => cards.filter((card) => !card.isNew);
+
 // --- Styles ---
 roamsr.setCustomStyle = (yes) => {
-  var styleId = "roamsr-css-custom"
-  var element = document.getElementById(styleId);
+  const styleId = "roamsr-css-custom";
+  const element = document.getElementById(styleId);
   if (element) element.remove();
 
   if (yes) {
     // Query new style
-    var styleQuery = window.roamAlphaAPI.q(
-      `[:find (pull ?style [:block/string]) :where [?roamsr :node/title "roam\/sr"] [?roamsr :block/children ?css] [?css :block/refs ?roamcss] [?roamcss :node/title "roam\/css"] [?css :block/children ?style]]`
-    );
+    const styleQuery = window.roamAlphaAPI.q(`[
+      :find (pull ?style [:block/string])
+      :where [?roamsr :node/title "roam\/sr"] [?roamsr :block/children ?css] [?css :block/refs ?roamcss] [?roamcss :node/title "roam\/css"] [?css :block/children ?style]]`);
 
-    if (styleQuery && styleQuery.length != 0) {
-      var customStyle = styleQuery[0][0].string.replace("```css", "").replace("```", "");
+    if (styleQuery && styleQuery.length !== 0) {
+      const customStyle = styleQuery[0][0].string
+        .replace("```css", "")
+        .replace("```", "");
 
-      var roamsrCSS = Object.assign(document.createElement("style"), {
+      const roamsrCSS = Object.assign(document.createElement("style"), {
         id: styleId,
-        innerHTML: customStyle
+        innerHTML: customStyle,
       });
 
       document.getElementsByTagName("head")[0].appendChild(roamsrCSS);
@@ -282,7 +392,7 @@ roamsr.setCustomStyle = (yes) => {
 };
 
 roamsr.addBasicStyles = () => {
-  var style = `
+  const style = `
   .roamsr-widget__review-button {
     color: #5C7080 !important;
   }
@@ -318,21 +428,21 @@ roamsr.addBasicStyles = () => {
   .roamsr-flag-button-container {
     width: 100%;
   }
-  `
-  var basicStyles = Object.assign(document.createElement("style"), {
+  `;
+  const basicStyles = Object.assign(document.createElement("style"), {
     id: "roamsr-css-basic",
-    innerHTML: style
+    innerHTML: style,
   });
   document.getElementsByTagName("head")[0].appendChild(basicStyles);
 };
 
 roamsr.showAnswerAndCloze = (yes) => {
-  var styleId = "roamsr-css-mainview"
-  var element = document.getElementById(styleId);
+  const styleId = "roamsr-css-mainview";
+  const element = document.getElementById(styleId);
   if (element) element.remove();
 
   if (yes) {
-    var style = `
+    const style = `
   .roam-article .rm-reference-main,
   .roam-article .rm-block-children
   {
@@ -342,11 +452,11 @@ roamsr.showAnswerAndCloze = (yes) => {
   .rm-block-ref {
     background-color: #cccccc;
     color: #cccccc;
-  }`
+  }`;
 
-    var basicStyles = Object.assign(document.createElement("style"), {
+    const basicStyles = Object.assign(document.createElement("style"), {
       id: styleId,
-      innerHTML: style
+      innerHTML: style,
     });
     document.getElementsByTagName("head")[0].appendChild(basicStyles);
   }
@@ -354,36 +464,41 @@ roamsr.showAnswerAndCloze = (yes) => {
 
 // --- Main functions ---
 roamsr.scheduleCardIn = async (card, interval) => {
-  var nextDate = new Date();
+  const nextDate = new Date();
   nextDate.setDate(nextDate.getDate() + interval);
 
-  var [nextTitle, nextUid] = roamsr.getRoamDate(nextDate);
+  const [nextTitle, nextUid] = roamsr.getRoamDate(nextDate);
 
   // Create daily note if it doesn't exist yet
   await window.roamAlphaAPI.createPage({
     page: {
-      title: nextTitle
-    }
+      title: nextTitle,
+    },
   });
 
   await roamsr.sleep();
 
   // Query for the [[roam/sr/review]] block
-  var queryReviewBlock = window.roamAlphaAPI.q('[:find (pull ?reviewBlock [:block/uid]) :in $ ?dailyNoteUID :where [?reviewBlock :block/refs ?reviewPage] [?reviewPage :node/title "roam/sr/review"] [?dailyNote :block/children ?reviewBlock] [?dailyNote :block/uid ?dailyNoteUID]]', nextUid);
+  const queryReviewBlock = window.roamAlphaAPI.q(
+    `
+   [:find (pull ?reviewBlock [:block/uid]) :in $ ?dailyNoteUID
+   :where [?reviewBlock :block/refs ?reviewPage] [?reviewPage :node/title "roam/sr/review"] [?dailyNote :block/children ?reviewBlock] [?dailyNote :block/uid ?dailyNoteUID]]`,
+    nextUid
+  );
 
   // Check if it's there; if not, create it
-  var topLevelUid;
-  if (queryReviewBlock.length == 0) {
+  let topLevelUid;
+  if (queryReviewBlock.length === 0) {
     topLevelUid = roamsr.createUid();
     await window.roamAlphaAPI.createBlock({
       location: {
         "parent-uid": nextUid,
-        order: 0
+        order: 0,
       },
       block: {
         string: "[[roam/sr/review]]",
-        uid: topLevelUid
-      }
+        uid: topLevelUid,
+      },
     });
     await roamsr.sleep();
   } else {
@@ -391,17 +506,17 @@ roamsr.scheduleCardIn = async (card, interval) => {
   }
 
   // Generate the block
-  var block = {
+  const block = {
     uid: roamsr.createUid(),
-    string: "((" + card.uid + "))"
-  }
+    string: `((${card.uid}))`,
+  };
   // Finally, schedule the card
   await window.roamAlphaAPI.createBlock({
     location: {
       "parent-uid": topLevelUid,
-      order: 0
+      order: 0,
     },
-    block: block
+    block,
   });
   await roamsr.sleep();
 
@@ -409,58 +524,62 @@ roamsr.scheduleCardIn = async (card, interval) => {
     date: nextUid,
     signal: null,
     uid: block.uid,
-    string: block.string
+    string: block.string,
   };
 };
 
 roamsr.flagCard = () => {
-  var card = roamsr.getCurrentCard();
+  const card = roamsr.getCurrentCard();
   window.roamAlphaAPI.updateBlock({
     block: {
       uid: card.uid,
-      string: card.string + " #" + roamsr.settings.flagTag
-    }
+      string: `${card.string} #${roamsr.settings.flagTag}`,
+    },
   });
-  var j = roamsr.getCurrentCard().isNew ? 0 : 1;
+  const j = roamsr.getCurrentCard().isNew ? 0 : 1;
   roamsr.state.queue.push(roamsr.state.extraCards[j].shift()[0]);
 };
 
 roamsr.responseHandler = async (card, interval, signal) => {
-  console.log("Signal: " + signal + ", Interval: " + interval);
-  var hist = card.history;
+  console.log(`Signal: ${signal}, Interval: ${interval}`);
+  const hist = card.history;
 
   // If new card, make it look like it was scheduled for today
-  if (hist.length == 0 || (hist[hist.length - 1] && new Date(hist[hist.length - 1].date) !== new Date())) {
-    var last = hist.pop();
+  if (
+    hist.length === 0 ||
+    (hist[hist.length - 1] &&
+      new Date(hist[hist.length - 1].date) !== new Date())
+  ) {
+    const last = hist.pop();
     if (last) {
       await window.roamAlphaAPI.deleteBlock({
         block: {
-          uid: last.uid
-        }
+          uid: last.uid,
+        },
       });
     }
-    var todayReviewBlock = await roamsr.scheduleCardIn(card, 0);
+    const todayReviewBlock = await roamsr.scheduleCardIn(card, 0);
     hist.push(todayReviewBlock);
   }
 
   // Record response
-  var last = hist[hist.length - 1];
+  const last = hist[hist.length - 1];
   await window.roamAlphaAPI.updateBlock({
     block: {
       uid: last.uid,
-      string: last.string + " #[[r/" + signal + "]]"
-    }
-  })
+      string: `${last.string} #[[r/${signal}]]`,
+    },
+  });
 
   // Schedule card to future
-  var nextReview = await roamsr.scheduleCardIn(card, interval);
+  const nextReview = await roamsr.scheduleCardIn(card, interval);
   hist.push(nextReview);
 
   // If it's scheduled for today, add it to the end of the queue
-  if (interval == 0) {
-    var newCard = card;
+  if (interval === 0) {
+    const newCard = { ...card };
     newCard.history = hist;
-    roamsr.state.queue.push(newCard)
+    roamsr.state.queue.push(newCard);
   }
 };
 
@@ -468,22 +587,22 @@ roamsr.stepToNext = () => {
   if (roamsr.state.currentIndex + 1 >= roamsr.state.queue.length) {
     roamsr.endSession();
   } else {
-    roamsr.state.currentIndex++;
+    roamsr.state.currentIndex += 1;
     roamsr.goToCurrentCard();
   }
   roamsr.updateCounters();
 };
 
 roamsr.goToCurrentCard = async () => {
-  window.onhashchange = () => { };
+  window.onhashchange = () => {};
   roamsr.showAnswerAndCloze(true);
   roamsr.removeReturnButton();
-  var doStuff = async () => {
+  const doStuff = async () => {
     roamsr.goToUid(roamsr.getCurrentCard().uid);
     await roamsr.sleep(50);
     roamsr.addContainer();
     roamsr.addShowAnswerButton();
-  }
+  };
 
   await doStuff();
   window.onhashchange = doStuff;
@@ -496,8 +615,8 @@ roamsr.goToCurrentCard = async () => {
     roamsr.removeContainer();
     roamsr.addReturnButton();
     roamsr.showAnswerAndCloze(false);
-    window.onhashchange = () => { };
-  }
+    window.onhashchange = () => {};
+  };
 };
 
 // --- Sessions ---
@@ -512,7 +631,7 @@ roamsr.loadSettings = () => {
       newCardLimit: 20,
       reviewLimit: 100,
     },
-    customDecks: []
+    customDecks: [],
   };
   roamsr.settings = Object.assign(roamsr.settings, window.roamsrUserSettings);
 };
@@ -521,13 +640,13 @@ roamsr.loadState = async (i) => {
   roamsr.state = {
     limits: true,
     currentIndex: i,
-  }
+  };
   roamsr.state.queue = await roamsr.loadCards();
 };
 
 roamsr.getCurrentCard = () => {
-  var card = roamsr.state.queue[roamsr.state.currentIndex];
-  return card ? card : {};
+  const card = roamsr.state.queue[roamsr.state.currentIndex];
+  return card || {};
 };
 
 roamsr.startSession = async () => {
@@ -539,7 +658,8 @@ roamsr.startSession = async () => {
     // Hide left sidebar
     try {
       document.getElementsByClassName("bp3-icon-menu-closed")[0].click();
-    } catch (e) { }
+      // eslint-disable-next-line no-empty
+    } catch (e) {}
 
     roamsr.loadSettings();
     await roamsr.loadState(0);
@@ -552,14 +672,15 @@ roamsr.startSession = async () => {
     roamsr.addKeyListener();
 
     // Change widget
-    var widget = document.querySelector(".roamsr-widget")
-    widget.innerHTML = "<div style='padding: 5px 0px'><span class='bp3-icon bp3-icon-cross'></span> END SESSION</div>";
+    const widget = document.querySelector(".roamsr-widget");
+    widget.innerHTML =
+      "<div style='padding: 5px 0px'><span class='bp3-icon bp3-icon-cross'></span> END SESSION</div>";
     widget.onclick = roamsr.endSession;
   }
 };
 
 roamsr.endSession = async () => {
-  window.onhashchange = () => { };
+  window.onhashchange = () => {};
   console.log("Ending sesion.");
 
   // Change widget
@@ -567,7 +688,7 @@ roamsr.endSession = async () => {
   roamsr.addWidget();
 
   // Remove elements
-  var doStuff = async () => {
+  const doStuff = async () => {
     await roamsr.loadState(-1);
     roamsr.removeContainer();
     roamsr.removeReturnButton();
@@ -576,7 +697,7 @@ roamsr.endSession = async () => {
     roamsr.removeKeyListener();
     roamsr.updateCounters();
     roamsr.goToUid();
-  }
+  };
 
   await doStuff();
   await roamsr.sleep(200);
@@ -587,66 +708,74 @@ roamsr.endSession = async () => {
 // Common
 roamsr.getCounter = (deck) => {
   // Getting the number of new cards
-  var cardCount = [0, 0];
+  let cardCount = [0, 0];
   if (roamsr.state.queue) {
-    var remainingQueue = roamsr.state.queue.slice(Math.max(roamsr.state.currentIndex, 0));
-    var filteredQueue = !deck ? remainingQueue : remainingQueue.filter((card) => card.decks.includes(deck));
-    cardCount = filteredQueue.reduce((a, card) => {
-      if (card.isNew) a[0]++;
-      else a[1]++;
-      return a;
-    }, [0, 0]);
+    const remainingQueue = roamsr.state.queue.slice(
+      Math.max(roamsr.state.currentIndex, 0)
+    );
+    const filteredQueue = !deck
+      ? remainingQueue
+      : remainingQueue.filter((card) => card.decks.includes(deck));
+    cardCount = [
+      roamsr.onlyNew(filteredQueue).length,
+      roamsr.onlyReview(filteredQueue).length,
+    ];
   }
 
   // Create the element
-  var counter = Object.assign(document.createElement("div"), {
+  const counter = Object.assign(document.createElement("div"), {
     className: "roamsr-counter",
-    innerHTML: `<span style="color: dodgerblue; padding-right: 8px">` + cardCount[0] + `</span> <span style="color: green;">` + cardCount[1] + `</span>`,
+    innerHTML: `<span style="color: dodgerblue; padding-right: 8px">${cardCount[0]}</span> <span style="color: green;">${cardCount[1]}</span>`,
   });
   return counter;
 };
 
 roamsr.updateCounters = () => {
-  var counter = document.querySelectorAll(".roamsr-counter").forEach(counter => {
+  document.querySelectorAll(".roamsr-counter").forEach((counter) => {
     counter.innerHTML = roamsr.getCounter().innerHTML;
-    counter.style.cssText = !roamsr.state.limits ? "font-style: italic;" : "font-style: inherit;"
-  })
+    counter.style.cssText = !roamsr.state.limits
+      ? "font-style: italic;"
+      : "font-style: inherit;";
+  });
 };
 
 // Container
 roamsr.addContainer = () => {
   if (!document.querySelector(".roamsr-container")) {
-    var wrapper = Object.assign(document.createElement("div"), {
-      className: "flex-h-box roamsr-wrapper"
-    })
-    var container = Object.assign(document.createElement("div"), {
+    const wrapper = Object.assign(document.createElement("div"), {
+      className: "flex-h-box roamsr-wrapper",
+    });
+    const container = Object.assign(document.createElement("div"), {
       className: "flex-v-box roamsr-container",
     });
 
-    var flagButtonContainer = Object.assign(document.createElement("div"), {
-      className: "flex-h-box roamsr-flag-button-container"
+    const flagButtonContainer = Object.assign(document.createElement("div"), {
+      className: "flex-h-box roamsr-flag-button-container",
     });
-    var flagButton = Object.assign(document.createElement("button"), {
+    const flagButton = Object.assign(document.createElement("button"), {
       className: "bp3-button roamsr-flag-button",
       innerHTML: "Flag.",
-      onclick: () => { roamsr.flagCard(); roamsr.stepToNext(); }
+      onclick: () => {
+        roamsr.flagCard();
+        roamsr.stepToNext();
+      },
     });
-    var skipButton = Object.assign(document.createElement("button"), {
+    const skipButton = Object.assign(document.createElement("button"), {
       className: "bp3-button roamsr-skip-button",
       innerHTML: "Skip.",
-      onclick: roamsr.stepToNext
+      onclick: roamsr.stepToNext,
     });
     flagButtonContainer.style.cssText = "justify-content: space-between;";
     flagButtonContainer.append(flagButton, skipButton);
 
-    var responseArea = Object.assign(document.createElement("div"), {
-      className: "flex-h-box roamsr-container__response-area"
+    const responseArea = Object.assign(document.createElement("div"), {
+      className: "flex-h-box roamsr-container__response-area",
     });
 
     container.append(roamsr.getCounter(), responseArea, flagButtonContainer);
     wrapper.append(container);
 
-    var bodyDiv = document.querySelector(".roam-body-main");
+    const bodyDiv = document.querySelector(".roam-body-main");
     bodyDiv.append(wrapper);
   }
 };
@@ -656,56 +785,75 @@ roamsr.removeContainer = () => {
 };
 
 roamsr.clearAndGetResponseArea = () => {
-  var responseArea = document.querySelector(".roamsr-container__response-area");
-  if (responseArea) responseArea.innerHTML = ""
+  const responseArea = document.querySelector(
+    ".roamsr-container__response-area"
+  );
+  if (responseArea) responseArea.innerHTML = "";
   return responseArea;
 };
 
 roamsr.addShowAnswerButton = () => {
-  var responseArea = roamsr.clearAndGetResponseArea();
+  const responseArea = roamsr.clearAndGetResponseArea();
 
-  var showAnswerAndClozeButton = Object.assign(document.createElement("button"), {
-    className: "bp3-button roamsr-container__response-area__show-answer-button",
-    innerHTML: "Show answer.",
-    onclick: () => { roamsr.showAnswerAndCloze(false); roamsr.addResponseButtons(); }
-  })
+  const showAnswerAndClozeButton = Object.assign(
+    document.createElement("button"),
+    {
+      className:
+        "bp3-button roamsr-container__response-area__show-answer-button",
+      innerHTML: "Show answer.",
+      onclick: () => {
+        roamsr.showAnswerAndCloze(false);
+        roamsr.addResponseButtons();
+      },
+    }
+  );
   showAnswerAndClozeButton.style.cssText = "margin: 5px;";
 
   responseArea.append(showAnswerAndClozeButton);
 };
 
 roamsr.addResponseButtons = () => {
-  var responseArea = roamsr.clearAndGetResponseArea();
+  const responseArea = roamsr.clearAndGetResponseArea();
 
   // Add new responses
-  var responses = roamsr.getCurrentCard().algorithm(roamsr.getCurrentCard().history);
-  for (response of responses) {
-    const res = response;
-    var responseButton = Object.assign(document.createElement("button"), {
-      id: "roamsr-response-" + res.signal,
+  const responses = roamsr
+    .getCurrentCard()
+    .algorithm(roamsr.getCurrentCard().history);
+  responses.forEach((res) => {
+    const responseButton = Object.assign(document.createElement("button"), {
+      id: `roamsr-response-${res.signal}`,
       className: "bp3-button roamsr-container__response-area__response-button",
-      innerHTML: res.responseText + "<sup>" + roamsr.getIntervalHumanReadable(res.interval) + "</sup>",
-      onclick: () => { roamsr.responseHandler(roamsr.getCurrentCard(), res.interval, res.signal); roamsr.stepToNext(); }
-    })
+      innerHTML: `${res.responseText}<sup>${roamsr.getIntervalHumanReadable(
+        res.interval
+      )}</sup>`,
+      onclick: () => {
+        roamsr.responseHandler(
+          roamsr.getCurrentCard(),
+          res.interval,
+          res.signal
+        );
+        roamsr.stepToNext();
+      },
+    });
     responseButton.style.cssText = "margin: 5px;";
     responseArea.append(responseButton);
-  }
+  });
 };
 
 // Return button
 roamsr.addReturnButton = () => {
-  var returnButtonClass = "roamsr-return-button-container";
+  const returnButtonClass = "roamsr-return-button-container";
   if (document.querySelector(returnButtonClass)) return;
 
-  var main = document.querySelector(".roam-main");
-  var body = document.querySelector(".roam-body-main");
-  var returnButtonContainer = Object.assign(document.createElement("div"), {
-    className: "flex-h-box " + returnButtonClass,
+  const main = document.querySelector(".roam-main");
+  const body = document.querySelector(".roam-body-main");
+  const returnButtonContainer = Object.assign(document.createElement("div"), {
+    className: `flex-h-box ${returnButtonClass}`,
   });
-  var returnButton = Object.assign(document.createElement("button"), {
+  const returnButton = Object.assign(document.createElement("button"), {
     className: "bp3-button bp3-large roamsr-return-button",
     innerText: "Return.",
-    onclick: roamsr.goToCurrentCard
+    onclick: roamsr.goToCurrentCard,
   });
   returnButtonContainer.append(returnButton);
   main.insertBefore(returnButtonContainer, body);
@@ -717,12 +865,13 @@ roamsr.removeReturnButton = () => {
 
 // Sidebar widget
 roamsr.createWidget = () => {
-  var widget = Object.assign(document.createElement("div"), {
+  const widget = Object.assign(document.createElement("div"), {
     className: "log-button flex-h-box roamsr-widget",
   });
-  widget.style.cssText = "align-items: center; justify-content: space-around; padding-top: 8px;"
+  widget.style.cssText =
+    "align-items: center; justify-content: space-around; padding-top: 8px;";
 
-  var reviewButton = Object.assign(document.createElement("div"), {
+  const reviewButton = Object.assign(document.createElement("div"), {
     className: "bp3-button bp3-minimal roamsr-widget__review-button",
     innerHTML: `<span style="padding-right: 8px;"><svg width="16" height="16" version="1.1" viewBox="0 0 4.2333 4.2333" style="color:5c7080;">
   <g id="chat_1_" transform="matrix(.26458 0 0 .26458 115.06 79.526)">
@@ -732,21 +881,21 @@ roamsr.createWidget = () => {
     </g>
   </g></svg></span> REVIEW`,
     //  <span class="bp3-icon bp3-icon-chevron-down expand-icon"></span>`
-    onclick: roamsr.startSession
+    onclick: roamsr.startSession,
   });
   reviewButton.style.cssText = "padding: 2px 8px;";
 
-  var counter = Object.assign(roamsr.getCounter(), {
+  const counter = Object.assign(roamsr.getCounter(), {
     className: "bp3-button bp3-minimal roamsr-counter",
     onclick: async () => {
       roamsr.state.limits = !roamsr.state.limits;
       roamsr.state.queue = await roamsr.loadCards();
       roamsr.updateCounters();
-    }
+    },
   });
-  var counterContainer = Object.assign(document.createElement("div"), {
+  const counterContainer = Object.assign(document.createElement("div"), {
     className: "flex-h-box roamsr-widget__counter",
-  })
+  });
   counterContainer.style.cssText = "justify-content: center; width: 50%";
   counterContainer.append(counter);
 
@@ -757,16 +906,17 @@ roamsr.createWidget = () => {
 
 roamsr.addWidget = () => {
   if (!document.querySelector(".roamsr-widget")) {
-    roamsr.removeSelector(".roamsr-widget-delimiter")
-    var delimiter = Object.assign(document.createElement("div"), {
-      className: "roamsr-widget-delimiter"
+    roamsr.removeSelector(".roamsr-widget-delimiter");
+    const delimiter = Object.assign(document.createElement("div"), {
+      className: "roamsr-widget-delimiter",
     });
-    delimiter.style.cssText = "flex: 0 0 1px; background-color: rgb(57, 75, 89); margin: 8px 20px;";
+    delimiter.style.cssText =
+      "flex: 0 0 1px; background-color: rgb(57, 75, 89); margin: 8px 20px;";
 
-    var widget = roamsr.createWidget();
+    const widget = roamsr.createWidget();
 
-    var sidebar = document.querySelector(".roam-sidebar-content");
-    var starredPages = document.querySelector(".starred-pages-wrapper");
+    const sidebar = document.querySelector(".roam-sidebar-content");
+    const starredPages = document.querySelector(".starred-pages-wrapper");
 
     sidebar.insertBefore(delimiter, starredPages);
     sidebar.insertBefore(widget, starredPages);
@@ -776,22 +926,30 @@ roamsr.addWidget = () => {
 // --- Keybindings ---
 roamsr.processKey = (e) => {
   // console.log("alt: " + e.altKey + "  shift: " + e.shiftKey + "  ctrl: " + e.ctrlKey + "   code: " + e.code + "   key: " + e.key);
-  if (document.activeElement.type == "textarea" || !location.href.includes(roamsr.getCurrentCard().uid)) {
+  if (
+    document.activeElement.type === "textarea" ||
+    !window.location.href.includes(roamsr.getCurrentCard().uid)
+  ) {
     return;
   }
 
-  var responses = roamsr.getCurrentCard().algorithm(roamsr.getCurrentCard().history);
-  var handleNthResponse = (n) => {
+  const responses = roamsr
+    .getCurrentCard()
+    .algorithm(roamsr.getCurrentCard().history);
+  const handleNthResponse = (n) => {
     if (n > 0 && n < responses.length) {
       const res = responses[n];
       roamsr.responseHandler(roamsr.getCurrentCard(), res.interval, res.signal);
       roamsr.stepToNext();
     }
-  }
+  };
 
   // Bindings for 123456789
   if (e.code.includes("Digit")) {
-    var n = Math.min(parseInt(e.code.replace("Digit", "")) - 1, responses.length - 1);
+    const n = Math.min(
+      parseInt(e.code.replace("Digit", ""), 10) - 1,
+      responses.length - 1
+    );
     handleNthResponse(n);
     return;
   }
@@ -799,30 +957,30 @@ roamsr.processKey = (e) => {
   // Bindings for hjkl
   const letters = ["KeyH", "KeyJ", "KeyK", "KeyL"];
   if (letters.includes(e.code)) {
-    var n = Math.min(letters.indexOf(e.code), responses.length - 1);
+    const n = Math.min(letters.indexOf(e.code), responses.length - 1);
     handleNthResponse(n);
     return;
   }
 
-  if (e.code == "Space") {
-    roamsr.showAnswerAndCloze(false); roamsr.addResponseButtons();
+  if (e.code === "Space") {
+    roamsr.showAnswerAndCloze(false);
+    roamsr.addResponseButtons();
     return;
   }
 
-  if (e.code == "KeyF") {
+  if (e.code === "KeyF") {
     roamsr.flagCard();
     roamsr.stepToNext();
     return;
   }
 
-  if (e.code == "KeyS") {
+  if (e.code === "KeyS") {
     roamsr.stepToNext();
     return;
   }
 
-  if (e.code == "KeyD" && e.altKey) {
+  if (e.code === "KeyD" && e.altKey) {
     roamsr.endSession();
-    return;
   }
 };
 
@@ -836,34 +994,37 @@ roamsr.removeKeyListener = () => {
 
 // --- {{sr}} button ---
 roamsr.buttonClickHandler = async (e) => {
-  if (e.target.tagName === 'BUTTON' && e.target.textContent === roamsr.settings.mainTag) {
-    var block = e.target.closest('.roam-block');
+  if (
+    e.target.tagName === "BUTTON" &&
+    e.target.textContent === roamsr.settings.mainTag
+  ) {
+    const block = e.target.closest(".roam-block");
     if (block) {
-      var uid = block.id.substring(block.id.length - 9);
+      const uid = block.id.substring(block.id.length - 9);
       const q = `[:find (pull ?page
                      [{:block/children [:block/uid :block/string]}])
                   :in $ ?uid
                   :where [?page :block/uid ?uid]]`;
-      var results = await window.roamAlphaAPI.q(q, uid);
-      if (results.length == 0) return;
-      var children = results[0][0].children;
-      for (child of children) {
+      const results = await window.roamAlphaAPI.q(q, uid);
+      if (results.length === 0) return;
+      const { children } = results[0][0];
+      children.forEach((child) => {
         window.roamAlphaAPI.updateBlock({
           block: {
             uid: child.uid,
-            string: child.string.trim() + ' #' + roamsr.settings.mainTag
-          }
+            string: `${child.string.trim()} #${roamsr.settings.mainTag}`,
+          },
         });
-      }
+      });
     }
   }
-}
+};
 
 document.addEventListener("click", roamsr.buttonClickHandler, false);
 
 // --- Creating state, calling functions directly ---
 roamsr.loadSettings();
 roamsr.addBasicStyles();
-roamsr.loadState(-1).then(res => {
+roamsr.loadState(-1).then(() => {
   roamsr.addWidget();
 });
